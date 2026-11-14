@@ -146,11 +146,12 @@ impl BrowserApp {
         let proxy = event_loop.create_proxy();
         let tokio_rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
         let http_client = ai::build_http_client();
-        let web_context = WebContext::new(Some(webview_profile_dir()));
+        let mut web_context = WebContext::new(Some(webview_profile_dir()));
+        let bg_rgba = if dark { (16, 19, 26, 255) } else { (233, 236, 243, 255) };
 
-        let chrome_webview = Self::create_chrome_webview(&window, proxy.clone());
-        let sidebar_webview = Self::create_sidebar_webview(&window, proxy.clone());
-        let overlay_webview = Self::create_overlay_webview(&window, proxy.clone());
+        let chrome_webview = Self::create_chrome_webview(&window, &mut web_context, bg_rgba, proxy.clone());
+        let sidebar_webview = Self::create_sidebar_webview(&window, &mut web_context, bg_rgba, proxy.clone());
+        let overlay_webview = Self::create_overlay_webview(&window, &mut web_context, proxy.clone());
         let overlay_hwnd = win32::top_child_hwnd(&window);
         let _ = overlay_webview.set_visible(false);
 
@@ -208,9 +209,15 @@ impl BrowserApp {
         app
     }
 
-    fn create_chrome_webview(window: &Window, proxy: EventLoopProxy<AppEvent>) -> WebView {
+    fn create_chrome_webview(
+        window: &Window,
+        web_context: &mut WebContext,
+        bg_rgba: (u8, u8, u8, u8),
+        proxy: EventLoopProxy<AppEvent>,
+    ) -> WebView {
         let size = window.inner_size().to_logical::<u32>(window.scale_factor());
-        let builder = WebViewBuilder::new()
+        let builder = WebViewBuilder::new_with_web_context(web_context)
+            .with_background_color(bg_rgba)
             .with_bounds(Rect {
                 position: LogicalPosition::new(0, 0).into(),
                 size: LogicalSize::new(size.width.max(300), CHROME_BASE_HEIGHT).into(),
@@ -225,8 +232,14 @@ impl BrowserApp {
         build_child_webview(builder, window).expect("Failed to create chrome webview")
     }
 
-    fn create_sidebar_webview(window: &Window, proxy: EventLoopProxy<AppEvent>) -> WebView {
-        let builder = WebViewBuilder::new()
+    fn create_sidebar_webview(
+        window: &Window,
+        web_context: &mut WebContext,
+        bg_rgba: (u8, u8, u8, u8),
+        proxy: EventLoopProxy<AppEvent>,
+    ) -> WebView {
+        let builder = WebViewBuilder::new_with_web_context(web_context)
+            .with_background_color(bg_rgba)
             .with_bounds(Rect {
                 position: LogicalPosition::new(0, CHROME_BASE_HEIGHT).into(),
                 size: LogicalSize::new(390, 600).into(),
@@ -241,9 +254,13 @@ impl BrowserApp {
         build_child_webview(builder, window).expect("Failed to create sidebar webview")
     }
 
-    fn create_overlay_webview(window: &Window, proxy: EventLoopProxy<AppEvent>) -> WebView {
+    fn create_overlay_webview(
+        window: &Window,
+        web_context: &mut WebContext,
+        proxy: EventLoopProxy<AppEvent>,
+    ) -> WebView {
         let size = window.inner_size().to_logical::<u32>(window.scale_factor());
-        let builder = WebViewBuilder::new()
+        let builder = WebViewBuilder::new_with_web_context(web_context)
             .with_transparent(true)
             .with_bounds(Rect {
                 position: LogicalPosition::new(0, CHROME_BASE_HEIGHT).into(),
@@ -260,7 +277,7 @@ impl BrowserApp {
     }
 
     fn border_pad(&self) -> u32 {
-        if self.window.is_maximized() { 0 } else { 4 }
+        if self.window.is_maximized() { 0 } else { 2 }
     }
 
     fn content_rect(&self) -> Rect {
@@ -348,11 +365,17 @@ impl BrowserApp {
         let p_dl_start = self.proxy.clone();
         let p_dl_done = self.proxy.clone();
 
+        let dark_bg = if self.persisted.settings.theme != "light" {
+            (11, 13, 18, 255)
+        } else {
+            (245, 246, 250, 255)
+        };
         let builder = if incognito {
             WebViewBuilder::new().with_incognito(true)
         } else {
             WebViewBuilder::new_with_web_context(&mut self.web_context)
         }
+        .with_background_color(dark_bg)
         .with_bounds(rect)
         .with_visible(activate)
         .with_custom_protocol("arthos".into(), |_, req| {

@@ -22,6 +22,7 @@ function faviconUrl(url) {
   try {
     if (!url.startsWith("http://") && !url.startsWith("https://")) return null;
     const u = new URL(url);
+    if (u.hostname === "arthos.localhost" || u.hostname.endsWith(".localhost")) return null;
     return `https://www.google.com/s2/favicons?sz=32&domain=${encodeURIComponent(u.hostname)}`;
   } catch {
     return null;

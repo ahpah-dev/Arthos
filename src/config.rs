@@ -193,7 +193,7 @@ pub fn state_file_path() -> PathBuf {
 pub fn load_state() -> PersistedState {
     let path = state_file_path();
     match fs::read_to_string(&path) {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
+        Ok(raw) => serde_json::from_str(raw.trim_start_matches('\u{feff}')).unwrap_or_default(),
         Err(_) => PersistedState::default(),
     }
 }

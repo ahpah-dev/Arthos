@@ -3,14 +3,20 @@ pub fn polish_window(window: &tao::window::Window, dark: bool) {
     use std::ffi::c_void;
     use tao::rwh_06::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::Graphics::Dwm::{
-        DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DwmSetWindowAttribute,
+        DWMWA_BORDER_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE,
+        DwmSetWindowAttribute,
     };
+    use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, InvalidateRect};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GCLP_HBRBACKGROUND, SetClassLongPtrW};
 
     if let Ok(handle) = window.window_handle() {
         if let RawWindowHandle::Win32(win32) = handle.as_raw() {
             let hwnd = win32.hwnd.get() as *mut c_void;
             let dark_val: i32 = if dark { 1 } else { 0 };
             let corner_pref: u32 = 2; // DWMWCP_ROUND
+            // COLORREF is 0x00BBGGRR: #10131a -> 0x001A1310; #e9ecf3 -> 0x00F3ECE9
+            let bg_color: u32 = if dark { 0x001A1310 } else { 0x00F3ECE9 };
+            let border_color: u32 = if dark { 0x002B241E } else { 0x00D8D0C8 };
             unsafe {
                 let _ = DwmSetWindowAttribute(
                     hwnd,
@@ -24,6 +30,17 @@ pub fn polish_window(window: &tao::window::Window, dark: bool) {
                     &corner_pref as *const u32 as *const c_void,
                     std::mem::size_of::<u32>() as u32,
                 );
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    DWMWA_BORDER_COLOR as u32,
+                    &border_color as *const u32 as *const c_void,
+                    std::mem::size_of::<u32>() as u32,
+                );
+                let brush = CreateSolidBrush(bg_color);
+                if !brush.is_null() {
+                    SetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND, brush as isize);
+                    let _ = InvalidateRect(hwnd, std::ptr::null(), 1);
+                }
             }
         }
     }
