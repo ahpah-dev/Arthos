@@ -17,17 +17,21 @@ Released into the public domain under the [Unlicense](UNLICENSE).
   - **One-Click Actions**: Summarize, Key Points, Explain Simply, Extract Links, and Grab Selection.
   - **Floating Selection Pill**: Highlight text on any page to explain, summarize, or ask AI immediately.
   - **Real-Time Streaming Markdown**: Crisp headings, lists, links, and syntax-ready code blocks with one-click copy.
-- **Multi-Provider AI Engine**:
+- **Multi-Provider AI Engine + Arthos Pulse (`arthos-pulse`)**:
+  - **Arthos Pulse Inference Framework (`crates/arthos-pulse`)**: Custom Rust crate providing runtime-dispatched **AVX2+FMA SIMD quantized `Q4_0`/`Q8_0` MatVec** kernels, RMSNorm/SwiGLU/Softmax/Paged KV cache primitives, zero-weight-load **GGUF v2/v3 header inspector**, structural webpage context compression, LRU semantic cache, HTTP/2 pre-warming, 60fps SSE frame coalescing, and live TTFT / `tok/s` telemetry.
   - **Local Instant Mode**: Works out of the box with zero API keys (on-device page snapshot, reading time, outline, links, and excerpt analysis).
-  - **Ollama (Local & Private)**: Auto-detects installed local models from `http://localhost:11434`.
+  - **Ollama (Local & Private)**: Auto-detects installed local models from `http://localhost:11434` with Pulse turbo parameters (`keep_alive`, `num_batch`, `num_ctx`, multi-core `num_thread`).
   - **OpenAI**, **Anthropic Claude**, **Google Gemini**, and **Custom OpenAI-Compatible Endpoints** (Groq, DeepSeek, OpenRouter, LM Studio, vLLM).
+- **Automatic Chrome Sync & DPAPI Password Vault**:
+  - Automatically syncs open Chrome tabs (SNSS parser), bookmarks, and saved logins from Google Chrome profiles on startup and every 60 seconds.
+  - Stores synced credentials encrypted locally via Windows **DPAPI** (`CryptProtectData`), provides a Shadow-DOM autofill pill on login forms, a searchable `arthos://passwords` vault manager, and standard Chrome Passwords `.csv` import for Chrome v20 App-Bound Encryption logins.
 - **AI Smart Omnibox (`Ctrl+L`)**: Navigate URLs, search via DuckDuckGo / Google / Brave / Kagi / Perplexity, or start any query with `? ` or `/ai ` to ask Arthos AI directly.
 - **Command Palette (`Ctrl+K`)**: Fuzzy jump across tabs, bookmarks, history, browser commands, and AI actions.
 - **Distraction-Free Reader Mode (`Alt+R`)**: Extracts clean article content with adjustable font size, Serif/Sans toggle, Default/Sepia/Paper themes, and one-click AI summarization.
 - **Built-In `arthos://` Pages**:
   - `arthos://newtab` — Minimal start page with clock, dual Web/AI search bar, and customizable Speed Dial.
-  - `arthos://settings` — AI providers, Ollama scanner, theme (Obsidian Dark / Porcelain Light), accent colors, search engine, and privacy controls.
-  - `arthos://library` (`arthos://bookmarks`, `arthos://history`, `arthos://downloads`) — Unified searchable library.
+  - `arthos://settings` — AI providers, Arthos Pulse SIMD benchmark & GGUF inspector, Chrome auto-sync controls, themes, accent colors, and privacy controls.
+  - `arthos://library` (`arthos://bookmarks`, `arthos://history`, `arthos://downloads`, `arthos://passwords`) — Unified searchable library & password vault.
 
 ---
 
@@ -78,10 +82,12 @@ The release binary is output to `target/release/arthos` (or `target/release/arth
 
 ```text
 Arthos/
+├── crates/arthos-pulse/ # Custom SIMD AVX2+FMA Q4_0/Q8_0 inference kernels, GGUF parser & pipeline cache
 ├── src/
-│   ├── main.rs        # Event loop, multi-webview orchestrator, IPC dispatcher
+│   ├── main.rs        # Event loop, multi-webview orchestrator, IPC dispatcher & auto-sync timer
 │   ├── browser.rs     # Tab state, IPC command schemas, chrome/internal sync payloads
-│   ├── ai.rs          # Streaming SSE/NDJSON clients (OpenAI, Anthropic, Gemini, Ollama, Local)
+│   ├── chrome_sync.rs # Chrome SNSS tabs, bookmarks, SQLite Login Data & DPAPI credential vault
+│   ├── ai.rs          # Pulse-accelerated streaming clients (OpenAI, Anthropic, Gemini, Ollama, Local)
 │   ├── config.rs      # Persistent JSON settings/bookmarks/history/speed-dial + omnibox resolver
 │   ├── protocol.rs    # Custom `arthos://` protocol serving embedded UI assets
 │   └── win32.rs       # Windows 11 DWM rounded corners & dark frame integration

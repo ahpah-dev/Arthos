@@ -188,6 +188,21 @@ window.__arthosSidebarEvent = (ev) => {
     if (currentAssistantText) {
       conversation.push({ role: "assistant", content: currentAssistantText });
     }
+    if (ev.telemetry && currentAssistantEl && currentAssistantEl.parentElement) {
+      const t = ev.telemetry;
+      const meta = document.createElement("div");
+      meta.className = "pulse-telemetry";
+      const parts = [
+        `⚡ ${t.engine_tag || "Pulse"}`,
+        `${t.ttft_ms ?? 0}ms TTFT`,
+        `${Number(t.tok_per_sec || 0).toFixed(0)} tok/s`,
+      ];
+      if (t.compression_pct > 0) parts.push(`-${t.compression_pct}% ctx`);
+      if (t.cache_hit) parts.push("cached");
+      meta.textContent = parts.join(" · ");
+      currentAssistantEl.parentElement.appendChild(meta);
+      feed.scrollTop = feed.scrollHeight;
+    }
     activeRequestId = null;
   } else if (ev.type === "error" && ev.request_id === activeRequestId) {
     setStreaming(false);

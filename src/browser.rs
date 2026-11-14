@@ -1,7 +1,10 @@
 use crate::ai::{ChatMessage, PageContext};
+use crate::chrome_sync::{ChromeSyncReport, VaultEntryDto};
 use crate::config::{
     AppSettings, Bookmark, DownloadItem, HistoryItem, PersistedState, SpeedDialTile, to_display_url,
 };
+use arthos_pulse::gguf::GgufSummary;
+use arthos_pulse::kernels::PulseBenchmarkReport;
 use serde::{Deserialize, Serialize};
 use wry::WebView;
 
@@ -69,6 +72,10 @@ pub struct InternalPagePayload {
     pub history: Vec<HistoryItem>,
     pub speed_dial: Vec<SpeedDialTile>,
     pub downloads: Vec<DownloadItem>,
+    pub vault: Vec<VaultEntryDto>,
+    pub chrome_sync_report: ChromeSyncReport,
+    pub pulse_benchmark: Option<PulseBenchmarkReport>,
+    pub pulse_avx2: bool,
     pub reader_article: Option<ReaderArticle>,
 }
 
@@ -156,6 +163,19 @@ pub enum FrontendCommand {
     ClearBookmarks,
     ClearDownloads,
     DetectOllama,
+    SyncChromeNow,
+    ImportChromeCsv {
+        csv: String,
+    },
+    DeleteVaultEntry {
+        id: String,
+    },
+    ClearVault,
+    RequestAutofill,
+    RunPulseBenchmark,
+    InspectGguf {
+        path: String,
+    },
     OpenExternalTab {
         url: String,
     },
@@ -200,6 +220,9 @@ pub enum AppEvent {
     OllamaModelsDetected(Result<Vec<String>, String>),
     ReaderExtracted(Result<ReaderArticle, String>),
     SelectionGrabbed(String),
+    ChromeAutoSyncTick,
+    PulseBenchmarkDone(PulseBenchmarkReport),
+    GgufInspected(Result<GgufSummary, String>),
 }
 
 pub fn active_model_label(s: &AppSettings) -> String {
@@ -271,6 +294,9 @@ pub fn build_chrome_payload(
 
 pub fn build_internal_payload(
     persisted: &PersistedState,
+    vault: Vec<VaultEntryDto>,
+    chrome_sync_report: ChromeSyncReport,
+    pulse_benchmark: Option<PulseBenchmarkReport>,
     reader_article: Option<ReaderArticle>,
 ) -> InternalPagePayload {
     InternalPagePayload {
@@ -279,6 +305,10 @@ pub fn build_internal_payload(
         history: persisted.history.clone(),
         speed_dial: persisted.speed_dial.clone(),
         downloads: persisted.downloads.clone(),
+        vault,
+        chrome_sync_report,
+        pulse_benchmark,
+        pulse_avx2: arthos_pulse::kernels::avx2_fma_supported(),
         reader_article,
     }
 }

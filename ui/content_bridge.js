@@ -295,10 +295,192 @@
     }, 180);
   });
 
-  document.addEventListener("scroll", hidePill, true);
+  document.addEventListener("scroll", () => {
+    hidePill();
+    hideAutofill();
+  }, true);
   document.addEventListener("mousedown", (e) => {
     if (pillHost && e.target !== pillHost) {
       hidePill();
     }
+    if (autofillHost && e.target !== autofillHost && e.target !== activeLoginField) {
+      hideAutofill();
+    }
   });
+
+  // Shadow-DOM Password Autofill for synced Chrome / DPAPI Vault logins
+  let autofillHost = null;
+  let activeLoginField = null;
+
+  function hideAutofill() {
+    if (autofillHost) autofillHost.style.display = "none";
+  }
+
+  function setNativeValue(el, val) {
+    if (!el || val == null) return;
+    const desc = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+    if (desc && desc.set) {
+      desc.set.call(el, val);
+    } else {
+      el.value = val;
+    }
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function findCredentialTargets(anchor) {
+    const form = anchor?.closest("form") || document;
+    const passInput =
+      (anchor?.type === "password" ? anchor : null) ||
+      form.querySelector('input[type="password"]:not([disabled])') ||
+      document.querySelector('input[type="password"]:not([disabled])');
+
+    const userSelectors = [
+      'input[autocomplete="username"]',
+      'input[autocomplete="email"]',
+      'input[type="email"]',
+      'input[name*="user" i]',
+      'input[name*="login" i]',
+      'input[name*="email" i]',
+      'input[id*="user" i]',
+      'input[id*="email" i]',
+      'input[type="text"]',
+    ];
+    let userInput = null;
+    if (anchor && anchor.type !== "password" && (anchor.type === "text" || anchor.type === "email" || !anchor.type)) {
+      userInput = anchor;
+    } else {
+      for (const sel of userSelectors) {
+        const candidate = form.querySelector(sel);
+        if (candidate && candidate !== passInput && candidate.offsetParent !== null) {
+          userInput = candidate;
+          break;
+        }
+      }
+    }
+    return { userInput, passInput };
+  }
+
+  function isLoginField(el) {
+    if (!el || el.tagName !== "INPUT") return false;
+    const t = (el.type || "text").toLowerCase();
+    if (t === "password") return true;
+    if (t === "email" || t === "text") {
+      const form = el.closest("form");
+      if (form && form.querySelector('input[type="password"]')) return true;
+      if ((el.autocomplete || "").includes("username") || (el.autocomplete || "").includes("email")) return true;
+    }
+    return false;
+  }
+
+  document.addEventListener(
+    "focusin",
+    (e) => {
+      if (location.protocol === "arthos:" || location.hostname === "arthos.localhost") return;
+      if (isLoginField(e.target)) {
+        activeLoginField = e.target;
+        post({ cmd: "request_autofill" });
+      }
+    },
+    true
+  );
+
+  window.__arthosApplyAutofill = (creds) => {
+    if (!Array.isArray(creds) || creds.length === 0) {
+      hideAutofill();
+      return;
+    }
+    const anchor = activeLoginField || document.querySelector('input[type="password"]');
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0)) return;
+
+    if (!autofillHost) {
+      autofillHost = document.createElement("div");
+      autofillHost.id = "__arthos_autofill";
+      autofillHost.style.cssText =
+        "position:fixed;z-index:2147483647;display:none;pointer-events:auto;";
+      autofillHost.attachShadow({ mode: "closed" });
+      document.documentElement.appendChild(autofillHost);
+    }
+
+    const shadow = autofillHost.shadowRoot;
+    shadow.innerHTML = "";
+    const style = document.createElement("style");
+    style.textContent = `
+      .af-card {
+        min-width: 220px;
+        max-width: 310px;
+        padding: 5px;
+        border-radius: 10px;
+        background: rgba(16, 19, 28, 0.96);
+        border: 1px solid rgba(124, 138, 255, 0.38);
+        box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #eef1f8;
+      }
+      .af-hdr {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #9aa4c2;
+        padding: 4px 8px 3px;
+      }
+      button.af-item {
+        width: 100%;
+        text-align: left;
+        border: none;
+        background: transparent;
+        color: #eef1f8;
+        padding: 7px 8px;
+        border-radius: 7px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      button.af-item:hover {
+        background: rgba(108, 123, 255, 0.22);
+      }
+      .af-user { font-size: 12.5px; font-weight: 600; }
+      .af-orig { font-size: 11px; color: #9aa4c2; }
+    `;
+    const card = document.createElement("div");
+    card.className = "af-card";
+    const hdr = document.createElement("div");
+    hdr.className = "af-hdr";
+    hdr.textContent = "Arthos Vault Autofill";
+    card.appendChild(hdr);
+
+    for (const c of creds.slice(0, 5)) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "af-item";
+      const uEl = document.createElement("span");
+      uEl.className = "af-user";
+      uEl.textContent = c.username || "(no username)";
+      const oEl = document.createElement("span");
+      oEl.className = "af-orig";
+      oEl.textContent = `${c.origin || location.hostname} • ••••••••`;
+      btn.appendChild(uEl);
+      btn.appendChild(oEl);
+      btn.addEventListener("mousedown", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const { userInput, passInput } = findCredentialTargets(anchor);
+        if (userInput && c.username) setNativeValue(userInput, c.username);
+        if (passInput && c.password) setNativeValue(passInput, c.password);
+        hideAutofill();
+      });
+      card.appendChild(btn);
+    }
+
+    shadow.appendChild(style);
+    shadow.appendChild(card);
+
+    autofillHost.style.top = `${Math.min(window.innerHeight - 120, rect.bottom + 4)}px`;
+    autofillHost.style.left = `${Math.min(window.innerWidth - 260, Math.max(8, rect.left))}px`;
+    autofillHost.style.display = "block";
+  };
 })();

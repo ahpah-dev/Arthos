@@ -224,6 +224,8 @@
     <aside class="nav-panel">
       <div class="nav-title"><span>✦</span> Arthos Settings</div>
       <button class="nav-link active" data-sec="sec-ai">AI Engine &amp; Models</button>
+      <button class="nav-link" data-sec="sec-pulse">Arthos Pulse Engine</button>
+      <button class="nav-link" data-sec="sec-chrome">Chrome Auto-Sync</button>
       <button class="nav-link" data-sec="sec-general">General &amp; Search</button>
       <button class="nav-link" data-sec="sec-appearance">Appearance</button>
       <button class="nav-link" data-sec="sec-privacy">Privacy &amp; Data</button>
@@ -329,6 +331,93 @@
           <label for="ai_temperature">Temperature (<span id="temp-val">0.4</span>)</label>
           <input id="ai_temperature" type="range" min="0" max="1" step="0.1" style="width:100%;" />
         </div>
+      </section>
+
+      <section id="sec-pulse" class="card">
+        <h2>Arthos Pulse Inference Framework</h2>
+        <p class="desc">Custom SIMD AVX2+FMA quantized kernels (<code>Q4_0</code> / <code>Q8_0</code>), structural context compression, HTTP/2 pre-warming, and Ollama turbo batching.</p>
+
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Enable Arthos Pulse Pipeline</div>
+            <div class="toggle-sub">Pre-warms persistent HTTP/2 sockets, coalesces SSE frames at 60fps, and enables Ollama turbo options</div>
+          </div>
+          <input id="pulse_enabled" type="checkbox" />
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Structural Context Compression</div>
+            <div class="toggle-sub">Deduplicates boilerplate lines before sending page text to models for faster Time-To-First-Token</div>
+          </div>
+          <input id="pulse_compress_context" type="checkbox" />
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Semantic Response Cache</div>
+            <div class="toggle-sub">Instant local recall for repeated page queries (10 min TTL)</div>
+          </div>
+          <input id="pulse_cache_enabled" type="checkbox" />
+        </div>
+
+        <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button id="btn-run-pulse-bench" class="btn btn-primary" type="button">Run Pulse SIMD Kernel Benchmark</button>
+          <span id="pulse-hw-badge" style="font-size:12px;color:var(--text-secondary);"></span>
+        </div>
+        <div id="pulse-bench-out" style="margin-top:10px;padding:12px;border-radius:10px;background:var(--bg-input);border:1px solid var(--border-subtle);font-size:12.5px;color:var(--text-secondary);line-height:1.6;">
+          Click "Run Pulse SIMD Kernel Benchmark" to measure Q4_0 / Q8_0 MatVec throughput on your CPU cores.
+        </div>
+
+        <div class="row" style="margin-top:14px;align-items:end;">
+          <div class="field">
+            <label for="gguf-path">GGUF Model Inspector (Zero-Weight-Load Header Parser)</label>
+            <input id="gguf-path" type="text" placeholder="C:\models\llama-3.2-3b-q4_0.gguf" />
+          </div>
+          <div>
+            <button id="btn-inspect-gguf" class="btn" type="button" style="height:38px;">Inspect .gguf File</button>
+          </div>
+        </div>
+        <div id="gguf-out" style="margin-top:8px;font-size:12px;color:var(--text-secondary);"></div>
+      </section>
+
+      <section id="sec-chrome" class="card">
+        <h2>Chrome Auto-Sync &amp; Password Vault</h2>
+        <p class="desc">Automatically syncs open tabs, bookmarks, and logins from Google Chrome into Arthos's Windows DPAPI-encrypted vault.</p>
+
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Automatic Background Sync</div>
+            <div class="toggle-sub">Sync from local Chrome profiles on launch and every 60 seconds</div>
+          </div>
+          <input id="auto_sync_chrome" type="checkbox" />
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Sync Open Chrome Tabs</div>
+            <div class="toggle-sub">Automatically opens active tabs from Chrome session SNSS files</div>
+          </div>
+          <input id="sync_chrome_tabs" type="checkbox" />
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Sync Chrome Logins &amp; Autofill</div>
+            <div class="toggle-sub">Encrypts synced passwords using Windows DPAPI (Local Machine User Key)</div>
+          </div>
+          <input id="sync_chrome_logins" type="checkbox" />
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Sync Chrome Bookmarks</div>
+            <div class="toggle-sub">Imports Chrome bookmark bar &amp; folders without duplicates</div>
+          </div>
+          <input id="sync_chrome_bookmarks" type="checkbox" />
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
+          <button id="btn-sync-chrome-now" class="btn btn-primary" type="button">Sync from Chrome Now</button>
+          <button id="btn-open-vault" class="btn" type="button">View Saved Passwords</button>
+          <label class="btn" style="display:inline-flex;align-items:center;">Import Chrome Passwords CSV<input id="settings-csv-input" type="file" accept=".csv" style="display:none;" /></label>
+        </div>
+        <div id="chrome-sync-status" style="margin-top:10px;padding:12px;border-radius:10px;background:var(--bg-input);border:1px solid var(--border-subtle);font-size:12.5px;color:var(--text-secondary);line-height:1.6;"></div>
       </section>
 
       <section id="sec-general" class="card">
@@ -483,6 +572,34 @@
       tempVal.textContent = tempInput.value;
       document.getElementById("restore_session").checked = !!s.restore_session;
       document.getElementById("selection_pill").checked = !!s.selection_pill;
+      document.getElementById("pulse_enabled").checked = s.pulse_enabled !== false;
+      document.getElementById("pulse_compress_context").checked = s.pulse_compress_context !== false;
+      document.getElementById("pulse_cache_enabled").checked = s.pulse_cache_enabled !== false;
+      document.getElementById("auto_sync_chrome").checked = s.auto_sync_chrome !== false;
+      document.getElementById("sync_chrome_tabs").checked = s.sync_chrome_tabs !== false;
+      document.getElementById("sync_chrome_logins").checked = s.sync_chrome_logins !== false;
+      document.getElementById("sync_chrome_bookmarks").checked = s.sync_chrome_bookmarks !== false;
+      document.getElementById("pulse-hw-badge").textContent = data.pulse_avx2
+        ? "SIMD Hardware: AVX2 + FMA Active"
+        : "SIMD Hardware: Scalar Fallback";
+
+      const rep = data.chrome_sync_report || {};
+      const statusEl = document.getElementById("chrome-sync-status");
+      if (statusEl) {
+        if (!rep.chrome_found) {
+          statusEl.textContent = `Vault entries: ${data.vault?.length || 0}. No local Google Chrome profile detected automatically — you can still import passwords via CSV.`;
+        } else {
+          const v20msg = rep.logins_skipped_v20 > 0
+            ? `<br/>Note: ${rep.logins_skipped_v20} Chrome v20 App-Bound Encryption logins were preserved safely and require Chrome CSV export (<code>chrome://password-manager/settings</code>).`
+            : "";
+          statusEl.innerHTML = `<strong>Chrome Sync Active:</strong> ${rep.profiles_scanned || 0} profile(s) scanned · ${rep.tabs_found || 0} Chrome tabs detected (${rep.tabs_opened || 0} newly opened) · ${rep.logins_synced || 0} logins synced (${data.vault?.length || 0} total in DPAPI vault) · ${rep.bookmarks_synced || 0} new bookmarks.${v20msg}`;
+        }
+      }
+
+      if (data.pulse_benchmark) {
+        window.__arthosPulseBenchmark(data.pulse_benchmark);
+      }
+
       document.querySelectorAll(".swatch").forEach((sw) => {
         sw.classList.toggle("active", sw.dataset.accent === selectedAccent);
       });
@@ -512,6 +629,13 @@
         custom_model: document.getElementById("custom_model").value.trim(),
         ai_system_prompt: document.getElementById("ai_system_prompt").value,
         ai_temperature: parseFloat(tempInput.value) || 0.4,
+        auto_sync_chrome: document.getElementById("auto_sync_chrome").checked,
+        sync_chrome_tabs: document.getElementById("sync_chrome_tabs").checked,
+        sync_chrome_logins: document.getElementById("sync_chrome_logins").checked,
+        sync_chrome_bookmarks: document.getElementById("sync_chrome_bookmarks").checked,
+        pulse_enabled: document.getElementById("pulse_enabled").checked,
+        pulse_compress_context: document.getElementById("pulse_compress_context").checked,
+        pulse_cache_enabled: document.getElementById("pulse_cache_enabled").checked,
       };
     }
 
@@ -554,6 +678,58 @@
     document.getElementById("btn-clear-bm").addEventListener("click", () => post({ cmd: "clear_bookmarks" }));
     document.getElementById("btn-clear-dl").addEventListener("click", () => post({ cmd: "clear_downloads" }));
     document.getElementById("btn-new-priv").addEventListener("click", () => post({ cmd: "new_tab", url: null, incognito: true }));
+
+    document.getElementById("btn-run-pulse-bench").addEventListener("click", () => {
+      document.getElementById("pulse-bench-out").textContent = "Running AVX2+FMA Q4_0 / Q8_0 MatVec benchmark...";
+      post({ cmd: "run_pulse_benchmark" });
+    });
+
+    window.__arthosPulseBenchmark = (r) => {
+      const out = document.getElementById("pulse-bench-out");
+      if (!out || !r) return;
+      out.innerHTML =
+        `<strong>Pulse Kernel Benchmark (${r.matrix_shape}, ${r.cpu_threads} Threads, ${r.avx2_fma_enabled ? "AVX2+FMA" : "Scalar"})</strong><br/>` +
+        `• Q4_0 MatVec: <strong>${r.pulse_q4_ms.toFixed(2)} ms</strong> (<strong>${r.q4_speedup.toFixed(2)}x</strong> vs scalar ${r.scalar_ms.toFixed(2)} ms) · <strong>${r.q4_gflops.toFixed(2)} GFLOP/s</strong> · ${r.q4_bandwidth_gbps.toFixed(2)} GB/s<br/>` +
+        `• Q8_0 MatVec: <strong>${r.pulse_q8_ms.toFixed(2)} ms</strong> (<strong>${r.q8_speedup.toFixed(2)}x</strong> speedup)`;
+    };
+
+    document.getElementById("btn-inspect-gguf").addEventListener("click", () => {
+      const p = document.getElementById("gguf-path").value.trim();
+      if (!p) return;
+      document.getElementById("gguf-out").textContent = "Reading GGUF header...";
+      post({ cmd: "inspect_gguf", path: p });
+    });
+
+    window.__arthosGgufResult = (res) => {
+      const el = document.getElementById("gguf-out");
+      if (!el) return;
+      if (!res.ok) {
+        el.textContent = "Error: " + res.error;
+        return;
+      }
+      const g = res.summary;
+      el.textContent = `GGUF v${g.version} · Arch: ${g.architecture} · Model: ${g.model_name} · Tensors: ${g.tensor_count} · Context: ${g.context_length ?? "default"} · Size: ${g.file_size_mb.toFixed(1)} MB`;
+    };
+
+    document.getElementById("btn-sync-chrome-now").addEventListener("click", () => {
+      post({ cmd: "save_settings", settings: collectSettings() });
+      post({ cmd: "sync_chrome_now" });
+    });
+    document.getElementById("btn-open-vault").addEventListener("click", () => {
+      post({ cmd: "new_tab", url: "arthos://passwords", incognito: false });
+    });
+    document.getElementById("settings-csv-input").addEventListener("change", (ev) => {
+      const f = ev.target.files?.[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          post({ cmd: "import_chrome_csv", csv: reader.result });
+        }
+      };
+      reader.readAsText(f);
+      ev.target.value = "";
+    });
 
     post({ cmd: "get_state" });
   </script>

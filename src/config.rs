@@ -28,6 +28,13 @@ pub struct AppSettings {
     pub custom_model: String,
     pub ai_system_prompt: String,
     pub ai_temperature: f32,
+    pub auto_sync_chrome: bool,
+    pub sync_chrome_tabs: bool,
+    pub sync_chrome_logins: bool,
+    pub sync_chrome_bookmarks: bool,
+    pub pulse_enabled: bool,
+    pub pulse_compress_context: bool,
+    pub pulse_cache_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -54,6 +61,13 @@ impl Default for AppSettings {
             custom_model: "llama-3.3-70b-versatile".to_string(),
             ai_system_prompt: "You are Arthos AI, a concise, accurate, privacy-respecting browsing assistant built into the Arthos web browser. Format answers clearly with Markdown when helpful.".to_string(),
             ai_temperature: 0.4,
+            auto_sync_chrome: true,
+            sync_chrome_tabs: true,
+            sync_chrome_logins: true,
+            sync_chrome_bookmarks: true,
+            pulse_enabled: true,
+            pulse_compress_context: true,
+            pulse_cache_enabled: true,
         }
     }
 }
@@ -100,6 +114,7 @@ pub struct PersistedState {
     pub speed_dial: Vec<SpeedDialTile>,
     pub downloads: Vec<DownloadItem>,
     pub open_tabs: Vec<String>,
+    pub synced_chrome_urls: Vec<String>,
     pub active_tab_index: usize,
     pub sidebar_open: bool,
     pub sidebar_width: u32,
@@ -164,6 +179,7 @@ impl Default for PersistedState {
             ],
             downloads: Vec::new(),
             open_tabs: Vec::new(),
+            synced_chrome_urls: Vec::new(),
             active_tab_index: 0,
             sidebar_open: false,
             sidebar_width: 390,

@@ -2,21 +2,33 @@
 
 mod ai;
 mod browser;
+mod chrome_sync;
 mod config;
 mod protocol;
 mod win32;
 
-use crate::ai::{AiStreamEvent, ChatMessage, PageContext};
+use crate::ai::{AiStreamEvent, ChatMessage, PageContext, PulseResponseCache, warmup_endpoint};
 use crate::browser::{
     AppEvent, CHROME_BASE_HEIGHT, FIND_BAR_HEIGHT, FrontendCommand, MAX_SIDEBAR_WIDTH,
     MIN_SIDEBAR_WIDTH, ReaderArticle, Tab, build_chrome_payload, build_internal_payload,
+};
+use crate::chrome_sync::{
+    ChromeSyncReport, CredentialVault, import_chrome_passwords_csv, load_vault,
+    matching_logins_for_url, save_vault, sync_from_chrome, vault_dtos,
 };
 use crate::config::{
     Bookmark, DownloadItem, HistoryItem, OmniboxAction, PersistedState, SpeedDialTile, load_state,
     resolve_omnibox_input, save_state, to_display_url, to_internal_arthos_url, webview_profile_dir,
 };
+use arthos_pulse::{
+    gguf::inspect_gguf,
+    kernels::{PulseBenchmarkReport, run_pulse_benchmark},
+};
 use chrono::Utc;
 use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tao::{
     dpi::{LogicalPosition, LogicalSize, PhysicalSize},
     event::{ElementState, Event, MouseButton, WindowEvent},
@@ -125,6 +137,10 @@ struct BrowserApp {
     active_tab_id: u64,
     next_tab_id: u64,
     persisted: PersistedState,
+    vault: CredentialVault,
+    chrome_sync_report: ChromeSyncReport,
+    ai_cache: Arc<Mutex<PulseResponseCache>>,
+    last_pulse_benchmark: Option<PulseBenchmarkReport>,
     find_open: bool,
     overlay_open: bool,
     last_reader_article: Option<ReaderArticle>,
@@ -152,6 +168,11 @@ impl BrowserApp {
         let proxy = event_loop.create_proxy();
         let tokio_rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
         let http_client = ai::build_http_client();
+        let vault = load_vault();
+        let ai_cache = Arc::new(Mutex::new(PulseResponseCache::new(
+            48,
+            Duration::from_secs(600),
+        )));
         let mut web_context = WebContext::new(Some(webview_profile_dir()));
         let bg_rgba = if dark { (16, 19, 26, 255) } else { (233, 236, 243, 255) };
 
@@ -179,6 +200,10 @@ impl BrowserApp {
             active_tab_id: 0,
             next_tab_id: 1,
             persisted,
+            vault,
+            chrome_sync_report: ChromeSyncReport::default(),
+            ai_cache,
+            last_pulse_benchmark: None,
             find_open: false,
             overlay_open: false,
             last_reader_article: None,
@@ -202,6 +227,10 @@ impl BrowserApp {
             app.create_tab(&internal, false, true);
         }
 
+        if app.persisted.settings.auto_sync_chrome {
+            app.run_chrome_sync(false);
+        }
+
         if let Some(tab) = app.tabs.get(app.persisted.active_tab_index) {
             let id = tab.id;
             app.switch_tab(id);
@@ -210,9 +239,83 @@ impl BrowserApp {
             app.switch_tab(id);
         }
 
+        // Pre-warm AI HTTP/2 socket pool and launch automatic Chrome sync ticker
+        if app.persisted.settings.pulse_enabled {
+            let warm_client = app.http_client.clone();
+            let ollama = app.persisted.settings.ollama_url.clone();
+            app.tokio_rt.spawn(async move {
+                warmup_endpoint(&warm_client, &format!("{}/api/tags", ollama.trim_end_matches('/'))).await;
+            });
+        }
+        let sync_proxy = app.proxy.clone();
+        app.tokio_rt.spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                let _ = sync_proxy.send_event(AppEvent::ChromeAutoSyncTick);
+            }
+        });
+
         app.layout_webviews();
         app.sync_all_ui();
         app
+    }
+
+    fn run_chrome_sync(&mut self, notify: bool) {
+        let sync_tabs = self.persisted.settings.sync_chrome_tabs;
+        let sync_logins = self.persisted.settings.sync_chrome_logins;
+        let sync_bookmarks = self.persisted.settings.sync_chrome_bookmarks;
+
+        let (chrome_tabs, mut report) = sync_from_chrome(
+            &mut self.vault,
+            &mut self.persisted.bookmarks,
+            sync_tabs,
+            sync_logins,
+            sync_bookmarks,
+        );
+
+        let mut opened = 0usize;
+        if sync_tabs {
+            for ct in chrome_tabs {
+                if opened >= 15 {
+                    break;
+                }
+                let already_open = self
+                    .tabs
+                    .iter()
+                    .any(|t| to_display_url(&t.url) == ct.url || t.url == ct.url);
+                let already_seen = self.persisted.synced_chrome_urls.iter().any(|u| u == &ct.url);
+                if !already_open && !already_seen {
+                    self.create_tab(&ct.url, false, false);
+                    self.persisted.synced_chrome_urls.push(ct.url);
+                    opened += 1;
+                }
+            }
+            if self.persisted.synced_chrome_urls.len() > 300 {
+                let drop_n = self.persisted.synced_chrome_urls.len() - 300;
+                self.persisted.synced_chrome_urls.drain(0..drop_n);
+            }
+        }
+        report.tabs_opened = opened;
+        self.chrome_sync_report = report.clone();
+        if sync_logins {
+            save_vault(&self.vault);
+        }
+        save_state(&self.persisted);
+        self.sync_all_ui();
+
+        if notify {
+            let msg = if !report.chrome_found {
+                "Chrome profile not found on this PC".to_string()
+            } else {
+                format!(
+                    "Synced Chrome: {} new tabs, {} logins, {} bookmarks",
+                    report.tabs_opened, report.logins_synced, report.bookmarks_synced
+                )
+            };
+            self.emit_toast(&msg);
+        }
     }
 
     fn create_chrome_webview(
@@ -541,7 +644,13 @@ impl BrowserApp {
         if let Some(tab) = self.active_tab() {
             let disp = to_display_url(&tab.url);
             if disp.starts_with("arthos://") {
-                let payload = build_internal_payload(&self.persisted, self.last_reader_article.clone());
+                let payload = build_internal_payload(
+                    &self.persisted,
+                    vault_dtos(&self.vault),
+                    self.chrome_sync_report.clone(),
+                    self.last_pulse_benchmark.clone(),
+                    self.last_reader_article.clone(),
+                );
                 if let Ok(json) = serde_json::to_string(&payload) {
                     let js = format!("window.__arthosPageData && window.__arthosPageData({json});");
                     let _ = tab.webview.evaluate_script(&js);
@@ -640,12 +749,13 @@ impl BrowserApp {
     ) {
         let settings = self.persisted.settings.clone();
         let client = self.http_client.clone();
+        let cache = self.ai_cache.clone();
         let proxy = self.proxy.clone();
 
         let handle = self
             .tokio_rt
             .spawn(async move {
-                ai::run_ai_request(client, request_id, settings, messages, context, |ev| {
+                ai::run_ai_request(client, Some(cache), request_id, settings, messages, context, |ev| {
                     let _ = proxy.send_event(AppEvent::AiStream(ev));
                 })
                 .await;
@@ -999,6 +1109,59 @@ impl BrowserApp {
                     let _ = proxy.send_event(AppEvent::OllamaModelsDetected(res));
                 });
             }
+            FrontendCommand::SyncChromeNow => {
+                // Allow manual re-sync to re-open tabs even if previously dismissed in past session
+                self.persisted.synced_chrome_urls.clear();
+                self.run_chrome_sync(true);
+            }
+            FrontendCommand::ImportChromeCsv { csv } => {
+                let imported = import_chrome_passwords_csv(&mut self.vault, &csv);
+                save_vault(&self.vault);
+                self.chrome_sync_report.logins_synced += imported;
+                self.sync_all_ui();
+                self.emit_toast(&format!("Imported {imported} Chrome logins into DPAPI vault"));
+            }
+            FrontendCommand::DeleteVaultEntry { id } => {
+                self.vault.entries.retain(|e| e.id != id);
+                save_vault(&self.vault);
+                self.sync_all_ui();
+                self.emit_toast("Login removed from vault");
+            }
+            FrontendCommand::ClearVault => {
+                self.vault.entries.clear();
+                save_vault(&self.vault);
+                self.sync_all_ui();
+                self.emit_toast("Password vault cleared");
+            }
+            FrontendCommand::RequestAutofill => {
+                if let Some(tab) = self.active_tab() {
+                    if !tab.incognito {
+                        let matches = matching_logins_for_url(&self.vault, &tab.url);
+                        if !matches.is_empty() {
+                            if let Ok(json) = serde_json::to_string(&matches) {
+                                let js = format!(
+                                    "window.__arthosApplyAutofill && window.__arthosApplyAutofill({json});"
+                                );
+                                let _ = tab.webview.evaluate_script(&js);
+                            }
+                        }
+                    }
+                }
+            }
+            FrontendCommand::RunPulseBenchmark => {
+                let proxy = self.proxy.clone();
+                self.tokio_rt.spawn_blocking(move || {
+                    let report = run_pulse_benchmark();
+                    let _ = proxy.send_event(AppEvent::PulseBenchmarkDone(report));
+                });
+            }
+            FrontendCommand::InspectGguf { path } => {
+                let proxy = self.proxy.clone();
+                self.tokio_rt.spawn_blocking(move || {
+                    let res = inspect_gguf(Path::new(path.trim()));
+                    let _ = proxy.send_event(AppEvent::GgufInspected(res));
+                });
+            }
             FrontendCommand::OpenExternalTab { url } => {
                 let internal = to_internal_arthos_url(&url);
                 self.create_tab(&internal, false, true);
@@ -1140,11 +1303,15 @@ impl BrowserApp {
                         "text": text
                     }));
                 }
-                AiStreamEvent::Done { request_id } => {
+                AiStreamEvent::Done {
+                    request_id,
+                    telemetry,
+                } => {
                     self.active_ai_abort = None;
                     self.emit_sidebar_event(serde_json::json!({
                         "type": "done",
-                        "request_id": request_id
+                        "request_id": request_id,
+                        "telemetry": telemetry
                     }));
                 }
                 AiStreamEvent::Error {
@@ -1195,6 +1362,33 @@ impl BrowserApp {
                         "type": "selection",
                         "text": text
                     }));
+                }
+            }
+            AppEvent::ChromeAutoSyncTick => {
+                if self.persisted.settings.auto_sync_chrome {
+                    self.run_chrome_sync(false);
+                }
+            }
+            AppEvent::PulseBenchmarkDone(report) => {
+                self.last_pulse_benchmark = Some(report.clone());
+                if let Some(tab) = self.active_tab() {
+                    if let Ok(json) = serde_json::to_string(&report) {
+                        let js = format!("window.__arthosPulseBenchmark && window.__arthosPulseBenchmark({json});");
+                        let _ = tab.webview.evaluate_script(&js);
+                    }
+                }
+                self.sync_internal_active_tab();
+            }
+            AppEvent::GgufInspected(res) => {
+                if let Some(tab) = self.active_tab() {
+                    let payload = match res {
+                        Ok(summary) => serde_json::json!({ "ok": true, "summary": summary }),
+                        Err(err) => serde_json::json!({ "ok": false, "error": err }),
+                    };
+                    if let Ok(json) = serde_json::to_string(&payload) {
+                        let js = format!("window.__arthosGgufResult && window.__arthosGgufResult({json});");
+                        let _ = tab.webview.evaluate_script(&js);
+                    }
                 }
             }
         }

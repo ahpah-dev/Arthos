@@ -150,12 +150,16 @@
         <button class="tab-btn active" data-tab="bookmarks">Bookmarks</button>
         <button class="tab-btn" data-tab="history">History</button>
         <button class="tab-btn" data-tab="downloads">Downloads</button>
+        <button class="tab-btn" data-tab="vault">Passwords</button>
       </div>
       <div class="controls">
         <input id="filter-input" type="text" placeholder="Filter..." />
+        <button id="btn-sync-chrome" class="btn hidden" type="button">Sync Chrome</button>
+        <label id="lbl-import-csv" class="btn hidden" style="display:inline-flex;align-items:center;">Import CSV<input id="csv-file-input" type="file" accept=".csv" style="display:none;" /></label>
         <button id="btn-clear" class="btn" type="button">Clear</button>
       </div>
     </div>
+    <div id="sync-banner" class="hidden" style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:12px;padding:10px 14px;font-size:12.5px;color:var(--text-secondary);"></div>
     <div id="list" class="list"></div>
   </div>
 
@@ -163,34 +167,57 @@
     const post = (obj) => window.ipc.postMessage(JSON.stringify(obj));
     const listEl = document.getElementById("list");
     const filterInput = document.getElementById("filter-input");
-    let state = { bookmarks: [], history: [], downloads: [] };
+    const btnSyncChrome = document.getElementById("btn-sync-chrome");
+    const lblImportCsv = document.getElementById("lbl-import-csv");
+    const csvFileInput = document.getElementById("csv-file-input");
+    const syncBanner = document.getElementById("sync-banner");
+    let state = { bookmarks: [], history: [], downloads: [], vault: [], chrome_sync_report: {} };
+    const revealedIds = new Set();
 
     let activeTab = "bookmarks";
     const path = location.pathname.replace(/^\//, "").toLowerCase();
     if (path === "history") activeTab = "history";
     else if (path === "downloads") activeTab = "downloads";
+    else if (path === "passwords" || path === "vault") activeTab = "vault";
 
     function updateTabButtons() {
       document.querySelectorAll(".tab-btn").forEach((b) => {
         b.classList.toggle("active", b.dataset.tab === activeTab);
       });
+      const isVault = activeTab === "vault";
+      btnSyncChrome.classList.toggle("hidden", !isVault);
+      lblImportCsv.classList.toggle("hidden", !isVault);
+      syncBanner.classList.toggle("hidden", !isVault);
     }
     updateTabButtons();
 
     function render() {
       const q = filterInput.value.trim().toLowerCase();
       listEl.innerHTML = "";
+
+      if (activeTab === "vault") {
+        const rep = state.chrome_sync_report || {};
+        const v20Note = rep.logins_skipped_v20 > 0
+          ? ` · ${rep.logins_skipped_v20} Chrome v20 ABE entries require Import CSV (from chrome://password-manager/settings)`
+          : "";
+        syncBanner.textContent = rep.chrome_found
+          ? `DPAPI Encrypted Vault · ${state.vault?.length || 0} saved logins · Chrome profiles scanned: ${rep.profiles_scanned || 0}${v20Note}`
+          : `DPAPI Encrypted Vault · ${state.vault?.length || 0} saved logins · Click "Sync Chrome" or "Import CSV" to load passwords.`;
+      }
+
       const items = state[activeTab] || [];
       const filtered = items.filter((item) => {
-        const t = (item.title || item.filename || "").toLowerCase();
-        const u = (item.url || item.path || "").toLowerCase();
+        const t = (item.title || item.filename || item.origin || item.username || "").toLowerCase();
+        const u = (item.url || item.path || item.username || "").toLowerCase();
         return !q || t.includes(q) || u.includes(q);
       });
 
       if (filtered.length === 0) {
         const empty = document.createElement("div");
         empty.className = "empty";
-        empty.textContent = `No ${activeTab} found.`;
+        empty.textContent = activeTab === "vault"
+          ? "No saved logins yet. Click Sync Chrome or Import CSV above."
+          : `No ${activeTab} found.`;
         listEl.appendChild(empty);
         return;
       }
@@ -203,37 +230,76 @@
         main.className = "row-main";
         const title = document.createElement("div");
         title.className = "row-title";
-        title.textContent = item.title || item.filename || item.url;
         const url = document.createElement("div");
         url.className = "row-url";
-        url.textContent = activeTab === "downloads" ? `${item.status} · ${item.path || item.url}` : item.url;
+
+        if (activeTab === "vault") {
+          title.textContent = `${item.origin || item.url} · ${item.username || "(no username)"}`;
+          const shown = revealedIds.has(item.id);
+          url.textContent = shown ? item.password : "•".repeat(Math.min(16, Math.max(8, (item.password || "").length)));
+        } else {
+          title.textContent = item.title || item.filename || item.url;
+          url.textContent = activeTab === "downloads" ? `${item.status} · ${item.path || item.url}` : item.url;
+        }
         main.appendChild(title);
         main.appendChild(url);
 
         const right = document.createElement("div");
         right.className = "row-right";
-        const ts = item.created_at || item.visited_at || item.started_at;
-        if (ts) {
-          const d = new Date(ts);
-          const span = document.createElement("span");
-          span.textContent = d.toLocaleDateString([], { month: "short", day: "numeric" });
-          right.appendChild(span);
-        }
-        if (activeTab === "bookmarks") {
+
+        if (activeTab === "vault") {
+          const revBtn = document.createElement("button");
+          revBtn.className = "del-btn";
+          revBtn.textContent = revealedIds.has(item.id) ? "Hide" : "Reveal";
+          revBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (revealedIds.has(item.id)) revealedIds.delete(item.id);
+            else revealedIds.add(item.id);
+            render();
+          });
+          const copyBtn = document.createElement("button");
+          copyBtn.className = "del-btn";
+          copyBtn.textContent = "Copy";
+          copyBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            navigator.clipboard?.writeText(item.password || "");
+            post({ cmd: "show_toast", message: "Password copied to clipboard" });
+          });
           const del = document.createElement("button");
           del.className = "del-btn";
           del.textContent = "✕";
-          del.title = "Delete bookmark";
+          del.title = "Delete login";
           del.addEventListener("click", (e) => {
             e.stopPropagation();
-            post({ cmd: "delete_bookmark", id: item.id });
+            post({ cmd: "delete_vault_entry", id: item.id });
           });
+          right.appendChild(revBtn);
+          right.appendChild(copyBtn);
           right.appendChild(del);
+        } else {
+          const ts = item.created_at || item.visited_at || item.started_at;
+          if (ts) {
+            const d = new Date(ts);
+            const span = document.createElement("span");
+            span.textContent = d.toLocaleDateString([], { month: "short", day: "numeric" });
+            right.appendChild(span);
+          }
+          if (activeTab === "bookmarks") {
+            const del = document.createElement("button");
+            del.className = "del-btn";
+            del.textContent = "✕";
+            del.title = "Delete bookmark";
+            del.addEventListener("click", (e) => {
+              e.stopPropagation();
+              post({ cmd: "delete_bookmark", id: item.id });
+            });
+            right.appendChild(del);
+          }
         }
 
         row.appendChild(main);
         row.appendChild(right);
-        if (activeTab !== "downloads") {
+        if (activeTab !== "downloads" && item.url) {
           row.addEventListener("click", () => post({ cmd: "navigate", input: item.url }));
         }
         listEl.appendChild(row);
@@ -249,9 +315,23 @@
     });
 
     filterInput.addEventListener("input", render);
+    btnSyncChrome.addEventListener("click", () => post({ cmd: "sync_chrome_now" }));
+    csvFileInput.addEventListener("change", () => {
+      const f = csvFileInput.files?.[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          post({ cmd: "import_chrome_csv", csv: reader.result });
+        }
+      };
+      reader.readAsText(f);
+      csvFileInput.value = "";
+    });
     document.getElementById("btn-clear").addEventListener("click", () => {
       if (activeTab === "history") post({ cmd: "clear_history" });
       else if (activeTab === "bookmarks") post({ cmd: "clear_bookmarks" });
+      else if (activeTab === "vault") post({ cmd: "clear_vault" });
       else post({ cmd: "clear_downloads" });
     });
 

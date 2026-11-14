@@ -33,7 +33,7 @@ pub fn handle_arthos_protocol(request: Request<Vec<u8>>) -> Response<Cow<'static
         "overlay.js" => ("application/javascript; charset=utf-8", OVERLAY_JS.as_bytes()),
         "" | "newtab" | "newtab.html" => ("text/html; charset=utf-8", NEWTAB_HTML.as_bytes()),
         "settings" | "settings.html" => ("text/html; charset=utf-8", SETTINGS_HTML.as_bytes()),
-        "library" | "history" | "bookmarks" | "downloads" | "library.html" => {
+        "library" | "history" | "bookmarks" | "downloads" | "passwords" | "vault" | "library.html" => {
             ("text/html; charset=utf-8", LIBRARY_HTML.as_bytes())
         }
         "reader" | "reader.html" => ("text/html; charset=utf-8", READER_HTML.as_bytes()),

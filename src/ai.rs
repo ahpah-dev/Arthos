@@ -1,9 +1,13 @@
 use crate::config::AppSettings;
+pub use arthos_pulse::pipeline::{
+    PulseResponseCache, PulseTelemetry, build_pulse_http_client, compress_context, warmup_endpoint,
+};
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -30,17 +34,22 @@ pub struct PageLink {
 
 #[derive(Debug, Clone)]
 pub enum AiStreamEvent {
-    Chunk { request_id: String, text: String },
-    Done { request_id: String },
-    Error { request_id: String, message: String },
+    Chunk {
+        request_id: String,
+        text: String,
+    },
+    Done {
+        request_id: String,
+        telemetry: PulseTelemetry,
+    },
+    Error {
+        request_id: String,
+        message: String,
+    },
 }
 
 pub fn build_http_client() -> Client {
-    Client::builder()
-        .timeout(Duration::from_secs(120))
-        .connect_timeout(Duration::from_secs(12))
-        .build()
-        .unwrap_or_else(|_| Client::new())
+    build_pulse_http_client()
 }
 
 pub async fn fetch_ollama_models(base_url: &str) -> Result<Vec<String>, String> {
@@ -66,8 +75,9 @@ pub async fn fetch_ollama_models(base_url: &str) -> Result<Vec<String>, String> 
     Ok(models)
 }
 
-fn compose_system_prompt(settings: &AppSettings, page_ctx: Option<&PageContext>) -> String {
+fn compose_system_prompt(settings: &AppSettings, page_ctx: Option<&PageContext>) -> (String, u8) {
     let mut prompt = settings.ai_system_prompt.clone();
+    let mut compression_pct = 0u8;
     if let Some(ctx) = page_ctx {
         if !ctx.url.is_empty() || !ctx.text.is_empty() || !ctx.selection.is_empty() {
             prompt.push_str("\n\n--- ACTIVE WEBPAGE CONTEXT ---\n");
@@ -88,7 +98,13 @@ fn compose_system_prompt(settings: &AppSettings, page_ctx: Option<&PageContext>)
                 }
             }
             if !ctx.text.is_empty() {
-                let body: String = ctx.text.chars().take(16000).collect();
+                let body = if settings.pulse_enabled && settings.pulse_compress_context {
+                    let compressed = compress_context(&ctx.text, 16000);
+                    compression_pct = compressed.reduction_pct;
+                    compressed.text
+                } else {
+                    ctx.text.chars().take(16000).collect()
+                };
                 prompt.push_str(&format!("\nExtracted Page Content:\n{body}\n"));
             }
             if !ctx.links.is_empty() {
@@ -99,11 +115,36 @@ fn compose_system_prompt(settings: &AppSettings, page_ctx: Option<&PageContext>)
             }
         }
     }
-    prompt
+    (prompt, compression_pct)
+}
+
+fn pulse_cache_key(
+    settings: &AppSettings,
+    messages: &[ChatMessage],
+    page_ctx: Option<&PageContext>,
+) -> u64 {
+    let msg_sig: String = messages
+        .iter()
+        .map(|m| format!("{}:{}", m.role, m.content))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let ctx_sig = page_ctx
+        .map(|c| format!("{}|{}|{}", c.url, c.selection, c.word_count))
+        .unwrap_or_default();
+    let model = match settings.ai_provider.as_str() {
+        "openai" => settings.openai_model.as_str(),
+        "anthropic" => settings.anthropic_model.as_str(),
+        "gemini" => settings.gemini_model.as_str(),
+        "ollama" => settings.ollama_model.as_str(),
+        "custom" => settings.custom_model.as_str(),
+        _ => "local",
+    };
+    PulseResponseCache::make_key(&settings.ai_provider, model, &msg_sig, &ctx_sig)
 }
 
 pub async fn run_ai_request<F>(
     client: Client,
+    cache: Option<Arc<Mutex<PulseResponseCache>>>,
     request_id: String,
     settings: AppSettings,
     messages: Vec<ChatMessage>,
@@ -112,98 +153,205 @@ pub async fn run_ai_request<F>(
 ) where
     F: FnMut(AiStreamEvent),
 {
-    let provider = settings.ai_provider.as_str();
-    let result = match provider {
-        "openai" => {
-            if settings.openai_api_key.trim().is_empty() {
-                run_local_fallback(&request_id, &messages, page_ctx.as_ref(), Some("OpenAI API key is not configured yet."), &mut emit).await
-            } else {
-                stream_openai_compat(
+    let started = Instant::now();
+    let (system_prompt, compression_pct) = compose_system_prompt(&settings, page_ctx.as_ref());
+    let pulse_on = settings.pulse_enabled;
+    let use_cache = pulse_on && settings.pulse_cache_enabled && settings.ai_provider != "local";
+    let cache_key = if use_cache {
+        Some(pulse_cache_key(&settings, &messages, page_ctx.as_ref()))
+    } else {
+        None
+    };
+
+    if let (Some(c), Some(key)) = (&cache, cache_key) {
+        if let Ok(mut guard) = c.lock() {
+            if let Some(cached) = guard.get(key) {
+                let total_ms = started.elapsed().as_millis().max(1) as u64;
+                let tokens_est = (cached.chars().count() / 4).max(1);
+                emit(AiStreamEvent::Chunk {
+                    request_id: request_id.clone(),
+                    text: cached,
+                });
+                emit(AiStreamEvent::Done {
+                    request_id,
+                    telemetry: PulseTelemetry {
+                        ttft_ms: total_ms,
+                        total_ms,
+                        tokens_est,
+                        tok_per_sec: (tokens_est as f64 / (total_ms as f64 / 1000.0)).min(99999.0),
+                        compression_pct,
+                        cache_hit: true,
+                        engine_tag: "Pulse Cache Hit".to_string(),
+                    },
+                });
+                return;
+            }
+        }
+    }
+
+    let mut full_response = String::new();
+    let mut coalesce_buf = String::new();
+    let mut first_token_at: Option<Instant> = None;
+    let mut last_flush = started;
+
+    let result = {
+        let mut wrapped_emit = |ev: AiStreamEvent| match ev {
+            AiStreamEvent::Chunk { request_id: rid, text } => {
+                if first_token_at.is_none() && !text.is_empty() {
+                    first_token_at = Some(Instant::now());
+                }
+                full_response.push_str(&text);
+                if pulse_on {
+                    coalesce_buf.push_str(&text);
+                    if coalesce_buf.len() >= 28 || last_flush.elapsed() >= Duration::from_millis(16) {
+                        emit(AiStreamEvent::Chunk {
+                            request_id: rid,
+                            text: std::mem::take(&mut coalesce_buf),
+                        });
+                        last_flush = Instant::now();
+                    }
+                } else {
+                    emit(AiStreamEvent::Chunk { request_id: rid, text });
+                }
+            }
+            other => emit(other),
+        };
+
+        let provider = settings.ai_provider.as_str();
+        match provider {
+            "openai" => {
+                if settings.openai_api_key.trim().is_empty() {
+                    run_local_fallback(&request_id, &messages, page_ctx.as_ref(), Some("OpenAI API key is not configured yet."), &mut wrapped_emit).await
+                } else {
+                    stream_openai_compat(
+                        &client,
+                        &request_id,
+                        "https://api.openai.com/v1",
+                        &settings.openai_api_key,
+                        &settings.openai_model,
+                        &system_prompt,
+                        &messages,
+                        settings.ai_temperature,
+                        &mut wrapped_emit,
+                    )
+                    .await
+                }
+            }
+            "custom" => {
+                if settings.custom_base_url.trim().is_empty() {
+                    run_local_fallback(&request_id, &messages, page_ctx.as_ref(), Some("Custom endpoint URL is empty."), &mut wrapped_emit).await
+                } else {
+                    stream_openai_compat(
+                        &client,
+                        &request_id,
+                        &settings.custom_base_url,
+                        &settings.custom_api_key,
+                        &settings.custom_model,
+                        &system_prompt,
+                        &messages,
+                        settings.ai_temperature,
+                        &mut wrapped_emit,
+                    )
+                    .await
+                }
+            }
+            "anthropic" => {
+                if settings.anthropic_api_key.trim().is_empty() {
+                    run_local_fallback(&request_id, &messages, page_ctx.as_ref(), Some("Anthropic API key is not configured yet."), &mut wrapped_emit).await
+                } else {
+                    stream_anthropic(
+                        &client,
+                        &request_id,
+                        &settings.anthropic_api_key,
+                        &settings.anthropic_model,
+                        &system_prompt,
+                        &messages,
+                        settings.ai_temperature,
+                        &mut wrapped_emit,
+                    )
+                    .await
+                }
+            }
+            "gemini" => {
+                if settings.gemini_api_key.trim().is_empty() {
+                    run_local_fallback(&request_id, &messages, page_ctx.as_ref(), Some("Gemini API key is not configured yet."), &mut wrapped_emit).await
+                } else {
+                    stream_gemini(
+                        &client,
+                        &request_id,
+                        &settings.gemini_api_key,
+                        &settings.gemini_model,
+                        &system_prompt,
+                        &messages,
+                        settings.ai_temperature,
+                        &mut wrapped_emit,
+                    )
+                    .await
+                }
+            }
+            "ollama" => {
+                stream_ollama(
                     &client,
                     &request_id,
-                    "https://api.openai.com/v1",
-                    &settings.openai_api_key,
-                    &settings.openai_model,
-                    &compose_system_prompt(&settings, page_ctx.as_ref()),
+                    &settings.ollama_url,
+                    &settings.ollama_model,
+                    &system_prompt,
                     &messages,
                     settings.ai_temperature,
-                    &mut emit,
+                    pulse_on,
+                    &mut wrapped_emit,
                 )
                 .await
             }
-        }
-        "custom" => {
-            if settings.custom_base_url.trim().is_empty() {
-                run_local_fallback(&request_id, &messages, page_ctx.as_ref(), Some("Custom endpoint URL is empty."), &mut emit).await
-            } else {
-                stream_openai_compat(
-                    &client,
-                    &request_id,
-                    &settings.custom_base_url,
-                    &settings.custom_api_key,
-                    &settings.custom_model,
-                    &compose_system_prompt(&settings, page_ctx.as_ref()),
-                    &messages,
-                    settings.ai_temperature,
-                    &mut emit,
-                )
-                .await
+            _ => {
+                run_local_fallback(&request_id, &messages, page_ctx.as_ref(), None, &mut wrapped_emit).await
             }
-        }
-        "anthropic" => {
-            if settings.anthropic_api_key.trim().is_empty() {
-                run_local_fallback(&request_id, &messages, page_ctx.as_ref(), Some("Anthropic API key is not configured yet."), &mut emit).await
-            } else {
-                stream_anthropic(
-                    &client,
-                    &request_id,
-                    &settings.anthropic_api_key,
-                    &settings.anthropic_model,
-                    &compose_system_prompt(&settings, page_ctx.as_ref()),
-                    &messages,
-                    settings.ai_temperature,
-                    &mut emit,
-                )
-                .await
-            }
-        }
-        "gemini" => {
-            if settings.gemini_api_key.trim().is_empty() {
-                run_local_fallback(&request_id, &messages, page_ctx.as_ref(), Some("Gemini API key is not configured yet."), &mut emit).await
-            } else {
-                stream_gemini(
-                    &client,
-                    &request_id,
-                    &settings.gemini_api_key,
-                    &settings.gemini_model,
-                    &compose_system_prompt(&settings, page_ctx.as_ref()),
-                    &messages,
-                    settings.ai_temperature,
-                    &mut emit,
-                )
-                .await
-            }
-        }
-        "ollama" => {
-            stream_ollama(
-                &client,
-                &request_id,
-                &settings.ollama_url,
-                &settings.ollama_model,
-                &compose_system_prompt(&settings, page_ctx.as_ref()),
-                &messages,
-                settings.ai_temperature,
-                &mut emit,
-            )
-            .await
-        }
-        _ => {
-            run_local_fallback(&request_id, &messages, page_ctx.as_ref(), None, &mut emit).await
         }
     };
 
+    if !coalesce_buf.is_empty() {
+        emit(AiStreamEvent::Chunk {
+            request_id: request_id.clone(),
+            text: coalesce_buf,
+        });
+    }
+
     match result {
-        Ok(()) => emit(AiStreamEvent::Done { request_id }),
+        Ok(()) => {
+            if let (Some(c), Some(key)) = (&cache, cache_key) {
+                if let Ok(mut guard) = c.lock() {
+                    guard.insert(key, full_response.clone());
+                }
+            }
+            let total_ms = started.elapsed().as_millis().max(1) as u64;
+            let ttft_ms = first_token_at
+                .map(|t| t.saturating_duration_since(started).as_millis() as u64)
+                .unwrap_or(total_ms);
+            let gen_ms = total_ms.saturating_sub(ttft_ms).max(1);
+            let tokens_est = (full_response.chars().count() / 4).max(1);
+            let tok_per_sec = (tokens_est as f64) / (gen_ms as f64 / 1000.0);
+            let engine_tag = if pulse_on {
+                if arthos_pulse::kernels::avx2_fma_supported() {
+                    "Pulse AVX2+HTTP/2"
+                } else {
+                    "Pulse Pipeline"
+                }
+            } else {
+                "Standard"
+            };
+            emit(AiStreamEvent::Done {
+                request_id,
+                telemetry: PulseTelemetry {
+                    ttft_ms,
+                    total_ms,
+                    tokens_est,
+                    tok_per_sec,
+                    compression_pct,
+                    cache_hit: false,
+                    engine_tag: engine_tag.to_string(),
+                },
+            });
+        }
         Err(message) => emit(AiStreamEvent::Error {
             request_id,
             message,
@@ -521,6 +669,7 @@ async fn stream_ollama<F>(
     system_prompt: &str,
     messages: &[ChatMessage],
     temperature: f32,
+    pulse_enabled: bool,
     emit: &mut F,
 ) -> Result<(), String>
 where
@@ -535,14 +684,34 @@ where
         api_messages.push(json!({ "role": m.role, "content": m.content }));
     }
 
-    let resp = client
-        .post(&url)
-        .json(&json!({
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let body = if pulse_enabled {
+        json!({
+            "model": model,
+            "messages": api_messages,
+            "keep_alive": "30m",
+            "options": {
+                "temperature": temperature,
+                "num_batch": 512,
+                "num_ctx": 8192,
+                "num_thread": num_threads
+            },
+            "stream": true
+        })
+    } else {
+        json!({
             "model": model,
             "messages": api_messages,
             "options": { "temperature": temperature },
             "stream": true
-        }))
+        })
+    };
+
+    let resp = client
+        .post(&url)
+        .json(&body)
         .send()
         .await
         .map_err(|e| format!("Could not reach Ollama at {base}: {e}"))?;
@@ -609,7 +778,7 @@ mod tests {
                 word_count: 20,
             };
             let mut events = Vec::new();
-            run_ai_request(client, "req-1".into(), settings, messages, Some(ctx), |ev| {
+            run_ai_request(client, None, "req-1".into(), settings, messages, Some(ctx), |ev| {
                 events.push(ev);
             })
             .await;
