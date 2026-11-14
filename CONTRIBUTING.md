@@ -1,6 +1,6 @@
 # Contributing to Arthos
 
-Contributions are welcome! Because Arthos is dedicated to the public domain under the **Unlicense**, any contributions you submit are also released under the Unlicense.
+Contributions are welcome!
 
 ## Guidelines
 
