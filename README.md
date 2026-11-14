@@ -8,6 +8,18 @@ Released into the public domain under the [Unlicense](UNLICENSE).
 
 ---
 
+## Screenshots
+
+| New Tab & AI Copilot Sidebar (`Ctrl+I`) | Command Palette (`Ctrl+K`) |
+|---|---|
+| ![Arthos New Tab and AI Copilot Sidebar](assets/screenshots/overview-newtab-ai.png) | ![Arthos Command Palette](assets/screenshots/command-palette.png) |
+
+| Arthos Pulse Inference Engine & Chrome Auto-Sync | DPAPI Encrypted Password Vault (`arthos://passwords`) |
+|---|---|
+| ![Arthos Pulse and Chrome Auto-Sync Settings](assets/screenshots/pulse-settings.png) | ![Arthos DPAPI Password Vault](assets/screenshots/passwords-vault.png) |
+
+---
+
 ## Features
 
 - **Super Lightweight Native Core**: Written in Rust using [`tao`](https://github.com/tauri-apps/tao) and [`wry`](https://github.com/tauri-apps/wry). No Electron, no bundled Node runtime, no 200 MB browser binary.
