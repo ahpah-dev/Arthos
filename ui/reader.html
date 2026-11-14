@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-accent="indigo">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reader Mode — Arthos</title>
+  <link rel="stylesheet" href="arthos://localhost/theme.css" />
+  <style>
+    body {
+      background: var(--bg-app);
+      min-height: 100vh;
+      padding: 24px 20px 80px;
+    }
+    body[data-paper="sepia"] {
+      background: #f4ecd8;
+      color: #3a2e21;
+    }
+    body[data-paper="light"] {
+      background: #fafafa;
+      color: #18181b;
+    }
+
+    .toolbar {
+      max-width: 720px;
+      margin: 0 auto 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+    }
+    .tb-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tb-btn {
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-pill);
+      color: var(--text-primary);
+      padding: 5px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .tb-btn:hover { background: var(--bg-pill-hover); }
+    .tb-ai {
+      background: var(--accent-soft);
+      border-color: var(--accent-border);
+      color: var(--text-primary);
+    }
+
+    article {
+      max-width: 700px;
+      margin: 0 auto;
+      font-size: 18px;
+      line-height: 1.75;
+    }
+    article.serif {
+      font-family: Georgia, "Times New Roman", Cambria, serif;
+    }
+    .meta {
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .site {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+    h1#art-title {
+      font-size: 32px;
+      line-height: 1.22;
+      margin: 0 0 10px;
+    }
+    .byline {
+      font-size: 13px;
+      opacity: 0.72;
+    }
+    #art-body img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 10px;
+      margin: 14px 0;
+    }
+    #art-body pre, #art-body code {
+      font-family: "JetBrains Mono", Consolas, monospace;
+      font-size: 0.88em;
+    }
+    #art-body pre {
+      padding: 14px;
+      border-radius: 10px;
+      background: rgba(127, 127, 127, 0.12);
+      overflow-x: auto;
+    }
+    #art-body a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="tb-group">
+      <button id="btn-exit" class="tb-btn" type="button">← Original Page</button>
+      <button id="btn-summarize" class="tb-btn tb-ai" type="button">✦ Summarize Article</button>
+    </div>
+    <div class="tb-group">
+      <button id="font-dec" class="tb-btn" type="button">A-</button>
+      <button id="font-inc" class="tb-btn" type="button">A+</button>
+      <button id="font-toggle" class="tb-btn" type="button">Serif</button>
+      <button class="tb-btn paper-btn" data-paper="theme" type="button">Default</button>
+      <button class="tb-btn paper-btn" data-paper="sepia" type="button">Sepia</button>
+      <button class="tb-btn paper-btn" data-paper="light" type="button">Paper</button>
+    </div>
+  </div>
+
+  <article id="article">
+    <div class="meta">
+      <div class="site" id="art-site"></div>
+      <h1 id="art-title">Reader Mode</h1>
+      <div class="byline" id="art-byline"></div>
+    </div>
+    <div id="art-body"></div>
+  </article>
+
+  <script>
+    const post = (obj) => window.ipc.postMessage(JSON.stringify(obj));
+    const articleEl = document.getElementById("article");
+    let fontSize = 18;
+
+    document.getElementById("font-inc").addEventListener("click", () => {
+      fontSize = Math.min(28, fontSize + 2);
+      articleEl.style.fontSize = fontSize + "px";
+    });
+    document.getElementById("font-dec").addEventListener("click", () => {
+      fontSize = Math.max(14, fontSize - 2);
+      articleEl.style.fontSize = fontSize + "px";
+    });
+    document.getElementById("font-toggle").addEventListener("click", (e) => {
+      const isSerif = articleEl.classList.toggle("serif");
+      e.target.textContent = isSerif ? "Sans" : "Serif";
+    });
+    document.querySelectorAll(".paper-btn").forEach((b) => {
+      b.addEventListener("click", () => {
+        if (b.dataset.paper === "theme") document.body.removeAttribute("data-paper");
+        else document.body.setAttribute("data-paper", b.dataset.paper);
+      });
+    });
+
+    document.getElementById("btn-exit").addEventListener("click", () => {
+      post({ cmd: "toggle_reader_mode" });
+    });
+    document.getElementById("btn-summarize").addEventListener("click", () => {
+      post({ cmd: "navigate", input: "? Summarize this article concisely with key takeaways." });
+    });
+
+    window.__arthosPageData = (data) => {
+      const s = data.settings || {};
+      document.documentElement.setAttribute("data-theme", s.theme || "dark");
+      document.documentElement.setAttribute("data-accent", s.accent || "indigo");
+      const art = data.reader_article;
+      if (!art) return;
+      document.title = `${art.title} — Reader Mode`;
+      document.getElementById("art-site").textContent = art.site_name || "";
+      document.getElementById("art-title").textContent = art.title || "Article";
+      const mins = Math.max(1, Math.ceil((art.word_count || 0) / 220));
+      document.getElementById("art-byline").textContent =
+        [art.byline, `${art.word_count || 0} words`, `${mins} min read`].filter(Boolean).join(" · ");
+      document.getElementById("art-body").innerHTML = art.html || "<p>No readable content found.</p>";
+    };
+
+    post({ cmd: "get_state" });
+  </script>
+</body>
+</html>

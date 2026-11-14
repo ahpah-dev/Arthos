@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-accent="indigo">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Settings — Arthos</title>
+  <link rel="stylesheet" href="arthos://localhost/theme.css" />
+  <style>
+    body {
+      background: var(--bg-app);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 36px 24px 64px;
+    }
+
+    .layout {
+      width: 100%;
+      max-width: 920px;
+      display: grid;
+      grid-template-columns: 210px 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+
+    @media (max-width: 720px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .nav-panel {
+      position: sticky;
+      top: 24px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .nav-title {
+      font-size: 13px;
+      font-weight: 700;
+      padding: 6px 10px 10px;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .nav-link {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      text-align: left;
+      padding: 8px 10px;
+      border-radius: 9px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .nav-link:hover { background: var(--bg-pill); color: var(--text-primary); }
+    .nav-link.active { background: var(--accent-soft); color: var(--text-primary); }
+
+    .cards {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 20px 22px;
+    }
+    .card h2 {
+      margin: 0 0 4px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .card p.desc {
+      margin: 0 0 18px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+    .field:last-child { margin-bottom: 0; }
+    .field label {
+      display: block;
+      font-size: 12.5px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text-secondary);
+    }
+    .field input[type="text"],
+    .field input[type="password"],
+    .field select,
+    .field textarea {
+      width: 100%;
+      padding: 9px 11px;
+      border-radius: 10px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-input);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+    }
+    .field input:focus,
+    .field select:focus,
+    .field textarea:focus {
+      border-color: var(--accent-border);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-top: 1px solid var(--border-subtle);
+    }
+    .toggle-row:first-of-type { border-top: none; padding-top: 0; }
+    .toggle-label { font-size: 13.5px; font-weight: 500; }
+    .toggle-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    .btn {
+      padding: 9px 15px;
+      border-radius: 10px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-pill);
+      color: var(--text-primary);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn:hover { background: var(--bg-pill-hover); }
+    .btn-primary {
+      background: var(--accent);
+      border-color: transparent;
+      color: #fff;
+    }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-danger {
+      background: rgba(244, 63, 94, 0.14);
+      border-color: rgba(244, 63, 94, 0.35);
+      color: #fb7185;
+    }
+
+    .swatches {
+      display: flex;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .swatch {
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      border: 2px solid transparent;
+      cursor: pointer;
+    }
+    .swatch.active { border-color: var(--text-primary); transform: scale(1.08); }
+
+    .ollama-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .ollama-chip {
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--accent-border);
+      background: var(--accent-soft);
+      color: var(--text-primary);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .shortcuts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 8px;
+    }
+    .sc-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: 9px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      font-size: 12.5px;
+    }
+    .sc-key {
+      font-family: monospace;
+      font-size: 11.5px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .save-bar {
+      position: sticky;
+      bottom: 18px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="nav-panel">
+      <div class="nav-title"><span>✦</span> Arthos Settings</div>
+      <button class="nav-link active" data-sec="sec-ai">AI Engine &amp; Models</button>
+      <button class="nav-link" data-sec="sec-general">General &amp; Search</button>
+      <button class="nav-link" data-sec="sec-appearance">Appearance</button>
+      <button class="nav-link" data-sec="sec-privacy">Privacy &amp; Data</button>
+      <button class="nav-link" data-sec="sec-about">Shortcuts &amp; About</button>
+    </aside>
+
+    <main class="cards">
+      <section id="sec-ai" class="card">
+        <h2>AI Engine &amp; Providers</h2>
+        <p class="desc">Connect local Ollama models or your own API key. All keys stay locally on your device.</p>
+
+        <div class="field">
+          <label for="ai_provider">Active Provider</label>
+          <select id="ai_provider">
+            <option value="local">Local Instant (Zero-API On-Device Analyzer)</option>
+            <option value="ollama">Ollama (Local Private LLM)</option>
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="custom">Custom OpenAI-Compatible (Groq, DeepSeek, OpenRouter, LM Studio)</option>
+          </select>
+        </div>
+
+        <div id="grp-ollama" class="provider-grp hidden">
+          <div class="row">
+            <div class="field">
+              <label for="ollama_url">Ollama Base URL</label>
+              <input id="ollama_url" type="text" placeholder="http://localhost:11434" />
+            </div>
+            <div class="field">
+              <label for="ollama_model">Model Name</label>
+              <input id="ollama_model" type="text" placeholder="llama3.2" />
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+            <button id="btn-scan-ollama" class="btn" type="button">Scan Local Ollama Models</button>
+            <span id="ollama-status" style="font-size:12px;color:var(--text-secondary);"></span>
+          </div>
+          <div id="ollama-chips" class="ollama-chips"></div>
+        </div>
+
+        <div id="grp-openai" class="provider-grp hidden">
+          <div class="row">
+            <div class="field">
+              <label for="openai_api_key">OpenAI API Key</label>
+              <input id="openai_api_key" type="password" placeholder="sk-..." />
+            </div>
+            <div class="field">
+              <label for="openai_model">Model</label>
+              <input id="openai_model" type="text" placeholder="gpt-4o-mini" />
+            </div>
+          </div>
+        </div>
+
+        <div id="grp-anthropic" class="provider-grp hidden">
+          <div class="row">
+            <div class="field">
+              <label for="anthropic_api_key">Anthropic API Key</label>
+              <input id="anthropic_api_key" type="password" placeholder="sk-ant-..." />
+            </div>
+            <div class="field">
+              <label for="anthropic_model">Model</label>
+              <input id="anthropic_model" type="text" placeholder="claude-sonnet-4-20250514" />
+            </div>
+          </div>
+        </div>
+
+        <div id="grp-gemini" class="provider-grp hidden">
+          <div class="row">
+            <div class="field">
+              <label for="gemini_api_key">Gemini API Key</label>
+              <input id="gemini_api_key" type="password" placeholder="AIza..." />
+            </div>
+            <div class="field">
+              <label for="gemini_model">Model</label>
+              <input id="gemini_model" type="text" placeholder="gemini-2.5-flash" />
+            </div>
+          </div>
+        </div>
+
+        <div id="grp-custom" class="provider-grp hidden">
+          <div class="field">
+            <label for="custom_base_url">Base URL (OpenAI v1 compatible)</label>
+            <input id="custom_base_url" type="text" placeholder="https://api.groq.com/openai/v1" />
+          </div>
+          <div class="row">
+            <div class="field">
+              <label for="custom_api_key">API Key (optional for LM Studio)</label>
+              <input id="custom_api_key" type="password" />
+            </div>
+            <div class="field">
+              <label for="custom_model">Model</label>
+              <input id="custom_model" type="text" />
+            </div>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:14px;">
+          <label for="ai_system_prompt">System Prompt</label>
+          <textarea id="ai_system_prompt" rows="3"></textarea>
+        </div>
+        <div class="field">
+          <label for="ai_temperature">Temperature (<span id="temp-val">0.4</span>)</label>
+          <input id="ai_temperature" type="range" min="0" max="1" step="0.1" style="width:100%;" />
+        </div>
+      </section>
+
+      <section id="sec-general" class="card">
+        <h2>General &amp; Search</h2>
+        <p class="desc">Configure your default search engine, homepage, and startup behavior.</p>
+        <div class="row">
+          <div class="field">
+            <label for="search_engine">Default Search Engine</label>
+            <select id="search_engine">
+              <option value="duckduckgo">DuckDuckGo (Private)</option>
+              <option value="google">Google</option>
+              <option value="brave">Brave Search</option>
+              <option value="kagi">Kagi</option>
+              <option value="perplexity">Perplexity</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="homepage">Homepage URL</label>
+            <input id="homepage" type="text" placeholder="arthos://newtab" />
+          </div>
+        </div>
+        <div class="toggle-row" style="margin-top:10px;">
+          <div>
+            <div class="toggle-label">Restore open tabs on startup</div>
+            <div class="toggle-sub">Reopen your previous browsing session automatically</div>
+          </div>
+          <input id="restore_session" type="checkbox" />
+        </div>
+      </section>
+
+      <section id="sec-appearance" class="card">
+        <h2>Appearance</h2>
+        <p class="desc">Customize Arthos theme, accent color, and inline AI helpers.</p>
+        <div class="row">
+          <div class="field">
+            <label for="theme">Theme</label>
+            <select id="theme">
+              <option value="dark">Obsidian Dark</option>
+              <option value="light">Porcelain Light</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Accent Color</label>
+            <div class="swatches">
+              <button type="button" class="swatch" data-accent="indigo" style="background:#6c7bff;" title="Indigo"></button>
+              <button type="button" class="swatch" data-accent="emerald" style="background:#10b981;" title="Emerald"></button>
+              <button type="button" class="swatch" data-accent="amber" style="background:#f59e0b;" title="Amber"></button>
+              <button type="button" class="swatch" data-accent="rose" style="background:#f43f5e;" title="Rose"></button>
+            </div>
+          </div>
+        </div>
+        <div class="toggle-row" style="margin-top:10px;">
+          <div>
+            <div class="toggle-label">Floating AI Selection Pill</div>
+            <div class="toggle-sub">Show quick Explain / Summarize pill when highlighting text on webpages</div>
+          </div>
+          <input id="selection_pill" type="checkbox" />
+        </div>
+      </section>
+
+      <section id="sec-privacy" class="card">
+        <h2>Privacy &amp; Data</h2>
+        <p class="desc">Manage locally stored browsing history, bookmarks, and downloads.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;">
+          <button id="btn-clear-hist" class="btn btn-danger" type="button">Clear Browsing History</button>
+          <button id="btn-clear-bm" class="btn btn-danger" type="button">Clear Bookmarks</button>
+          <button id="btn-clear-dl" class="btn" type="button">Clear Download List</button>
+          <button id="btn-new-priv" class="btn" type="button">Open Private Tab</button>
+        </div>
+      </section>
+
+      <section id="sec-about" class="card">
+        <h2>Keyboard Shortcuts &amp; About</h2>
+        <p class="desc">Arthos Browser v0.1.0 — Released into the public domain under the Unlicense.</p>
+        <div class="shortcuts-grid">
+          <div class="sc-item"><span>New Tab</span><span class="sc-key">Ctrl+T</span></div>
+          <div class="sc-item"><span>Private Tab</span><span class="sc-key">Ctrl+Shift+N</span></div>
+          <div class="sc-item"><span>Close Tab</span><span class="sc-key">Ctrl+W</span></div>
+          <div class="sc-item"><span>Command Palette</span><span class="sc-key">Ctrl+K</span></div>
+          <div class="sc-item"><span>AI Copilot Sidebar</span><span class="sc-key">Ctrl+I</span></div>
+          <div class="sc-item"><span>Focus Omnibox</span><span class="sc-key">Ctrl+L</span></div>
+          <div class="sc-item"><span>Find in Page</span><span class="sc-key">Ctrl+F</span></div>
+          <div class="sc-item"><span>Reader Mode</span><span class="sc-key">Alt+R</span></div>
+          <div class="sc-item"><span>Zoom In / Out</span><span class="sc-key">Ctrl+= / -</span></div>
+          <div class="sc-item"><span>Developer Tools</span><span class="sc-key">F12</span></div>
+        </div>
+      </section>
+
+      <div class="save-bar">
+        <button id="btn-save" class="btn btn-primary" type="button">Save Settings</button>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const post = (obj) => window.ipc.postMessage(JSON.stringify(obj));
+    let currentSettings = null;
+    let selectedAccent = "indigo";
+
+    const providerSelect = document.getElementById("ai_provider");
+    const tempInput = document.getElementById("ai_temperature");
+    const tempVal = document.getElementById("temp-val");
+
+    function updateProviderVisibility() {
+      const val = providerSelect.value;
+      document.querySelectorAll(".provider-grp").forEach((el) => el.classList.add("hidden"));
+      const active = document.getElementById("grp-" + val);
+      if (active) active.classList.remove("hidden");
+    }
+    providerSelect.addEventListener("change", updateProviderVisibility);
+    tempInput.addEventListener("input", () => {
+      tempVal.textContent = tempInput.value;
+    });
+
+    document.querySelectorAll(".swatch").forEach((sw) => {
+      sw.addEventListener("click", () => {
+        selectedAccent = sw.dataset.accent;
+        document.querySelectorAll(".swatch").forEach((s) => s.classList.toggle("active", s === sw));
+        document.documentElement.setAttribute("data-accent", selectedAccent);
+      });
+    });
+
+    document.querySelectorAll(".nav-link").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".nav-link").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById(btn.dataset.sec)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+
+    window.__arthosPageData = (data) => {
+      const s = data.settings;
+      if (!s) return;
+      currentSettings = s;
+      selectedAccent = s.accent || "indigo";
+      document.documentElement.setAttribute("data-theme", s.theme || "dark");
+      document.documentElement.setAttribute("data-accent", selectedAccent);
+
+      for (const key of [
+        "ai_provider", "ollama_url", "ollama_model",
+        "openai_api_key", "openai_model",
+        "anthropic_api_key", "anthropic_model",
+        "gemini_api_key", "gemini_model",
+        "custom_base_url", "custom_api_key", "custom_model",
+        "ai_system_prompt", "search_engine", "homepage", "theme"
+      ]) {
+        const el = document.getElementById(key);
+        if (el) el.value = s[key] ?? "";
+      }
+
+      tempInput.value = s.ai_temperature ?? 0.4;
+      tempVal.textContent = tempInput.value;
+      document.getElementById("restore_session").checked = !!s.restore_session;
+      document.getElementById("selection_pill").checked = !!s.selection_pill;
+      document.querySelectorAll(".swatch").forEach((sw) => {
+        sw.classList.toggle("active", sw.dataset.accent === selectedAccent);
+      });
+      updateProviderVisibility();
+    };
+
+    function collectSettings() {
+      return {
+        theme: document.getElementById("theme").value,
+        accent: selectedAccent,
+        search_engine: document.getElementById("search_engine").value,
+        homepage: document.getElementById("homepage").value.trim() || "arthos://newtab",
+        restore_session: document.getElementById("restore_session").checked,
+        selection_pill: document.getElementById("selection_pill").checked,
+        include_page_context: currentSettings ? currentSettings.include_page_context : true,
+        ai_provider: providerSelect.value,
+        openai_api_key: document.getElementById("openai_api_key").value,
+        openai_model: document.getElementById("openai_model").value.trim() || "gpt-4o-mini",
+        anthropic_api_key: document.getElementById("anthropic_api_key").value,
+        anthropic_model: document.getElementById("anthropic_model").value.trim() || "claude-sonnet-4-20250514",
+        gemini_api_key: document.getElementById("gemini_api_key").value,
+        gemini_model: document.getElementById("gemini_model").value.trim() || "gemini-2.5-flash",
+        ollama_url: document.getElementById("ollama_url").value.trim() || "http://localhost:11434",
+        ollama_model: document.getElementById("ollama_model").value.trim() || "llama3.2",
+        custom_base_url: document.getElementById("custom_base_url").value.trim(),
+        custom_api_key: document.getElementById("custom_api_key").value,
+        custom_model: document.getElementById("custom_model").value.trim(),
+        ai_system_prompt: document.getElementById("ai_system_prompt").value,
+        ai_temperature: parseFloat(tempInput.value) || 0.4,
+      };
+    }
+
+    document.getElementById("btn-save").addEventListener("click", () => {
+      post({ cmd: "save_settings", settings: collectSettings() });
+    });
+
+    document.getElementById("btn-scan-ollama").addEventListener("click", () => {
+      document.getElementById("ollama-status").textContent = "Scanning...";
+      post({ cmd: "save_settings", settings: collectSettings() });
+      post({ cmd: "detect_ollama" });
+    });
+
+    window.__arthosOllamaModels = (res) => {
+      const status = document.getElementById("ollama-status");
+      const chips = document.getElementById("ollama-chips");
+      chips.innerHTML = "";
+      if (!res.ok) {
+        status.textContent = "Not reachable: " + res.error;
+        return;
+      }
+      if (!res.models || res.models.length === 0) {
+        status.textContent = "Ollama running, no models pulled yet.";
+        return;
+      }
+      status.textContent = `Found ${res.models.length} model(s):`;
+      for (const m of res.models) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "ollama-chip";
+        b.textContent = m;
+        b.addEventListener("click", () => {
+          document.getElementById("ollama_model").value = m;
+        });
+        chips.appendChild(b);
+      }
+    };
+
+    document.getElementById("btn-clear-hist").addEventListener("click", () => post({ cmd: "clear_history" }));
+    document.getElementById("btn-clear-bm").addEventListener("click", () => post({ cmd: "clear_bookmarks" }));
+    document.getElementById("btn-clear-dl").addEventListener("click", () => post({ cmd: "clear_downloads" }));
+    document.getElementById("btn-new-priv").addEventListener("click", () => post({ cmd: "new_tab", url: null, incognito: true }));
+
+    post({ cmd: "get_state" });
+  </script>
+</body>
+</html>

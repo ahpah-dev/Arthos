@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-accent="indigo">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arthos Command Palette</title>
+  <link rel="stylesheet" href="arthos://localhost/theme.css" />
+  <link rel="stylesheet" href="arthos://localhost/overlay.css" />
+</head>
+<body>
+  <div id="backdrop">
+    <div id="palette" role="dialog" aria-label="Command Palette">
+      <div id="palette-head">
+        <span class="cmd-icon">⌘</span>
+        <input id="cmd-input" type="text" placeholder="Type a command, URL, tab, bookmark, or ask Arthos AI..." autocomplete="off" spellcheck="false" />
+        <kbd>Esc</kbd>
+      </div>
+      <div id="cmd-list"></div>
+      <div id="palette-foot">
+        <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+        <span><kbd>Enter</kbd> Run</span>
+        <span><kbd>?</kbd> Ask AI</span>
+      </div>
+    </div>
+  </div>
+  <script src="arthos://localhost/overlay.js"></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-accent="indigo">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arthos AI</title>
+  <link rel="stylesheet" href="arthos://localhost/theme.css" />
+  <link rel="stylesheet" href="arthos://localhost/sidebar.css" />
+</head>
+<body>
+  <div id="resize-handle" title="Drag to resize"></div>
+  <div id="sidebar-root">
+    <header id="sb-header">
+      <div class="sb-title">
+        <span class="spark-badge">✦</span>
+        <span>Arthos AI</span>
+      </div>
+      <div class="sb-controls">
+        <select id="provider-select" title="Switch AI Provider">
+          <option value="local">Local Instant</option>
+          <option value="ollama">Ollama (Local)</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Claude</option>
+          <option value="gemini">Gemini</option>
+          <option value="custom">Custom Endpoint</option>
+        </select>
+        <button id="btn-sb-settings" class="sb-icon-btn" title="AI Settings">⚙</button>
+        <button id="btn-sb-clear" class="sb-icon-btn" title="New Conversation">↺</button>
+        <button id="btn-sb-close" class="sb-icon-btn" title="Close Sidebar (Ctrl+I)">✕</button>
+      </div>
+    </header>
+
+    <div id="context-bar">
+      <label class="ctx-toggle" title="Include active page content with prompts">
+        <input id="ctx-checkbox" type="checkbox" checked />
+        <span class="ctx-dot"></span>
+        <span id="ctx-page-title">Current page</span>
+      </label>
+      <button id="btn-grab-sel" class="mini-btn" title="Attach selected text from active page">+ Selection</button>
+    </div>
+
+    <div id="quick-chips">
+      <button class="chip" data-prompt="Summarize this page concisely with the most important points.">✦ Summarize</button>
+      <button class="chip" data-prompt="Extract the key takeaways as a clear bullet list.">• Key Points</button>
+      <button class="chip" data-prompt="Explain the main ideas of this page in simple terms.">💡 Explain</button>
+      <button class="chip" data-prompt="List and categorize the most useful links on this page.">🔗 Links</button>
+    </div>
+
+    <main id="chat-feed">
+      <div id="empty-state">
+        <div class="empty-glow">✦</div>
+        <h3>Ask anything while you browse</h3>
+        <p>Summarize articles, analyze documentation, extract links, or chat with local Ollama &amp; cloud models.</p>
+        <div class="model-pill" id="active-model-pill">Local Instant</div>
+      </div>
+    </main>
+
+    <footer id="composer-wrap">
+      <div id="selection-preview" class="hidden">
+        <span id="selection-preview-text"></span>
+        <button id="selection-clear" title="Remove selection">✕</button>
+      </div>
+      <div id="composer">
+        <textarea id="chat-input" rows="1" placeholder="Ask Arthos AI about this page or anything..."></textarea>
+        <button id="btn-send" title="Send (Enter)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </button>
+        <button id="btn-stop" class="hidden" title="Stop generating">■</button>
+      </div>
+    </footer>
+  </div>
+  <script src="arthos://localhost/sidebar.js"></script>
+</body>
+</html>
