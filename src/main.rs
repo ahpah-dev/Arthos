@@ -21,11 +21,16 @@ use tao::{
     dpi::{LogicalPosition, LogicalSize, PhysicalSize},
     event::{ElementState, Event, MouseButton, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy},
-    window::{CursorIcon, ResizeDirection, Window, WindowBuilder},
+    window::{CursorIcon, Icon, ResizeDirection, Window, WindowBuilder},
 };
 use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
 
 const CONTENT_BRIDGE_JS: &str = include_str!("../ui/content_bridge.js");
+const ICON_64_RGBA: &[u8] = include_bytes!("../assets/icon_64.rgba");
+
+fn load_window_icon() -> Option<Icon> {
+    Icon::from_rgba(ICON_64_RGBA.to_vec(), 64, 64).ok()
+}
 
 fn build_child_webview(builder: WebViewBuilder<'_>, window: &Window) -> wry::Result<WebView> {
     #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -138,6 +143,7 @@ impl BrowserApp {
             .with_inner_size(LogicalSize::new(1360, 860))
             .with_min_inner_size(LogicalSize::new(720, 480))
             .with_decorations(false)
+            .with_window_icon(load_window_icon())
             .build(event_loop)
             .expect("Failed to create main window");
 
